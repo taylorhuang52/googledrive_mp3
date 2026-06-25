@@ -439,6 +439,28 @@
     });
   }
 
+  function updateMediaSession(track) {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: track.name.replace(/\.mp3$/i, ''),
+      artist: '雲端硬碟 MP3 播放器',
+      artwork: [
+        { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: 'icon-512.png', sizes: '512x512', type: 'image/png' }
+      ]
+    });
+  }
+
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.setActionHandler('play', () => audio.play());
+    navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+    navigator.mediaSession.setActionHandler('previoustrack', () => prevBtn.click());
+    navigator.mediaSession.setActionHandler('nexttrack', () => nextBtn.click());
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      if (details.seekTime != null) audio.currentTime = details.seekTime;
+    });
+  }
+
   function loadTrack(index, autoplay) {
     if (index < 0 || index >= playlist.length) return;
     if (!apiKeyEl.value.trim()) {
@@ -452,6 +474,7 @@
     trackName.textContent = track.name;
     trackStatus.textContent = '載入中...';
     renderPlaylist();
+    updateMediaSession(track);
     if (autoplay) {
       audio.play().then(() => { isPlaying = true; updatePlayBtn(); })
                    .catch(() => { trackStatus.textContent = '無法播放,請確認 API 金鑰、檔案 ID 與分享權限'; });
@@ -509,8 +532,8 @@
     curTime.textContent = fmtTime(audio.currentTime);
   });
 
-  audio.addEventListener('play', () => { isPlaying = true; updatePlayBtn(); trackStatus.textContent = '播放中'; });
-  audio.addEventListener('pause', () => { isPlaying = false; updatePlayBtn(); if(trackStatus.textContent==='播放中') trackStatus.textContent='已暫停'; });
+  audio.addEventListener('play', () => { isPlaying = true; updatePlayBtn(); trackStatus.textContent = '播放中'; if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
+  audio.addEventListener('pause', () => { isPlaying = false; updatePlayBtn(); if(trackStatus.textContent==='播放中') trackStatus.textContent='已暫停'; if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; });
   audio.addEventListener('error', () => { trackStatus.textContent = '❌ 載入失敗,請確認 API 金鑰、檔案 ID 與分享權限'; });
 
   seekBar.addEventListener('input', () => {
