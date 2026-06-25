@@ -223,6 +223,20 @@
     outline: none;
   }
   .key-row input::placeholder { color: #8d7fc0; }
+  .primary-btn {
+    width: 100%;
+    background: rgba(139,92,246,0.25);
+    border: 1px solid rgba(139,92,246,0.5);
+    color: #fff;
+    padding: 10px;
+    border-radius: 10px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: 16px;
+    transition: background .15s;
+  }
+  .primary-btn:hover { background: rgba(139,92,246,0.4); }
+  .primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -236,9 +250,16 @@
   </div>
 
   <div class="key-row">
-    <label for="apiKey">Google Drive API 金鑰(跟抓取工具用同一組)</label>
+    <label for="apiKey">Google Drive API 金鑰</label>
     <input type="password" id="apiKey" placeholder="貼上你的 API 金鑰">
   </div>
+
+  <div class="key-row">
+    <label for="folderUrl">Google Drive 資料夾網址</label>
+    <input type="text" id="folderUrl" placeholder="https://drive.google.com/drive/folders/xxxxxxxx">
+  </div>
+
+  <button class="primary-btn" id="refreshBtn">🔄 重新整理歌單</button>
 
   <div class="now-playing">
     <div class="track" id="trackName">尚未選取歌曲</div>
@@ -275,22 +296,8 @@
 </div>
 
 <script>
-  // ====== 在這裡填入你的播放清單 ======
-  // id: 把 Google Drive 分享連結中 /d/ 和 /view 之間的那一段貼到這裡
-  // 例如連結 https://drive.google.com/file/d/1AbCdEfGhIjK/view?usp=sharing
-  //      → id 就是 "1AbCdEfGhIjK"
-const playlist = [
-    { name: "一袖香梦.mp3", id: "1mkHJ3g9XxbTZP4J9RmHVblgk_I-4ahLb" },
-    { name: "何日再相見.mp3", id: "1hrAIQ1C-MFbreMD6I2k7euO-DT7k6Igc" },
-    { name: "情義兩心堅.mp3", id: "1SErT1H7QS2BjkA7xjcHTVmoEQo86Iq8q" },
-    { name: "烟雨情深.mp3", id: "1RwwjQn4fb5zJTSGj6iKrdvdxYnSYRrcp" },
-    { name: "此生有你.mp3", id: "1XDOf7aOSB-90_mD7gaxd-8lrulVvwcG7" },
-    { name: "戲夢紅塵 (2).mp3", id: "11kDA53QeCuBGO2AS50D0vGq-L-tyMdLY" },
-    { name: "test_music.mp3", id: "1cOfa_adt2kHD7D-ESg_R8A314NQVYHvy" },
-    { name: "流光红尘.mp3", id: "1W7cd2cBFVlOudGgYRRVddeIcyFpH8I6q" },
-    { name: "海海人生.mp3", id: "1qEvcsF6SxsE47Cu6JaIK-tc-j7leCkgE" },
-];
-  // =====================================
+  // 歌單不再寫死,改成每次打開 App 時自動從 Google Drive 資料夾抓取最新清單
+  let playlist = [];
 
   function driveUrl(id) {
     const key = apiKeyEl.value.trim();
@@ -298,20 +305,101 @@ const playlist = [
   }
 
   const apiKeyEl = document.getElementById('apiKey');
+  const folderUrlEl = document.getElementById('folderUrl');
+  const refreshBtn = document.getElementById('refreshBtn');
   const noticeEl = document.getElementById('notice');
 
-  // 記住金鑰,下次打開不用再貼一次
+  // 記住金鑰與資料夾網址,下次打開不用再貼一次
   const savedKey = localStorage.getItem('drive_api_key');
+  const savedFolder = localStorage.getItem('drive_folder_url');
   if (savedKey) apiKeyEl.value = savedKey;
+  if (savedFolder) folderUrlEl.value = savedFolder;
   apiKeyEl.addEventListener('input', () => {
     localStorage.setItem('drive_api_key', apiKeyEl.value.trim());
     updateNotice();
   });
+  folderUrlEl.addEventListener('input', () => {
+    localStorage.setItem('drive_folder_url', folderUrlEl.value.trim());
+  });
 
-  function updateNotice() {
-    noticeEl.style.display = apiKeyEl.value.trim() ? 'none' : 'block';
+  function updateNotice(msg) {
+    if (msg) {
+      noticeEl.textContent = msg;
+      noticeEl.style.display = 'block';
+      return;
+    }
+    noticeEl.textContent = '⚠️ 請先在上方輸入 API 金鑰與 Drive 資料夾網址,再按「重新整理歌單」。';
+    noticeEl.style.display = (apiKeyEl.value.trim() && folderUrlEl.value.trim()) ? 'none' : 'block';
   }
   updateNotice();
+
+  function extractFolderId(url) {
+    const m = url.match(/folders\/([a-zA-Z0-9_-]+)/);
+    if (m) return m[1];
+    if (/^[a-zA-Z0-9_-]{10,}$/.test(url.trim())) return url.trim();
+    return null;
+  }
+
+  async function fetchPlaylistFromDrive() {
+    const apiKey = apiKeyEl.value.trim();
+    const folderUrl = folderUrlEl.value.trim();
+    if (!apiKey || !folderUrl) {
+      updateNotice('⚠️ 請先輸入 API 金鑰與 Drive 資料夾網址');
+      return;
+    }
+    const folderId = extractFolderId(folderUrl);
+    if (!folderId) {
+      updateNotice('⚠️ 看不出資料夾網址裡的 ID,請確認網址格式');
+      return;
+    }
+
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = '🔄 抓取中...';
+
+    try {
+      let files = [];
+      let pageToken = null;
+      do {
+        const params = new URLSearchParams({
+          q: `'${folderId}' in parents and trashed = false and (mimeType = 'audio/mpeg' or name contains '.mp3')`,
+          fields: 'nextPageToken, files(id, name)',
+          pageSize: '200',
+          key: apiKey
+        });
+        if (pageToken) params.set('pageToken', pageToken);
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error?.message || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        files = files.concat(data.files || []);
+        pageToken = data.nextPageToken || null;
+      } while (pageToken);
+
+      // 依檔名排序,順序穩定一致
+      files.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+      playlist = files.map(f => ({ name: f.name, id: f.id }));
+
+      // 順便存一份快取,離線或抓取失敗時可以用舊清單
+      localStorage.setItem('cached_playlist', JSON.stringify(playlist));
+
+      renderPlaylist();
+      if (playlist.length === 0) {
+        updateNotice('⚠️ 資料夾裡沒有找到 mp3,請確認資料夾 ID 與分享權限');
+      } else {
+        noticeEl.style.display = 'none';
+      }
+    } catch (err) {
+      updateNotice('❌ 抓取歌單失敗:' + err.message);
+    } finally {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = '🔄 重新整理歌單';
+    }
+  }
+
+  refreshBtn.addEventListener('click', fetchPlaylistFromDrive);
+
 
   const audio = document.getElementById('audio');
   const playBtn = document.getElementById('playBtn');
@@ -448,8 +536,16 @@ const playlist = [
   modeAll.addEventListener('click', () => setMode('all'));
   modeOne.addEventListener('click', () => setMode('one'));
 
-  // 初始化
+  // 初始化:先顯示上次快取的歌單(離線也能用),再嘗試抓最新版本
+  const cached = localStorage.getItem('cached_playlist');
+  if (cached) {
+    try { playlist = JSON.parse(cached); } catch (e) { playlist = []; }
+  }
   renderPlaylist();
+
+  if (apiKeyEl.value.trim() && folderUrlEl.value.trim()) {
+    fetchPlaylistFromDrive();
+  }
 
   // 註冊 Service Worker（讓這個頁面可以被「加到主畫面」、有 App 圖示與離線外殼）
   if ('serviceWorker' in navigator) {
