@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>雲端硬碟 MP3 播放器</title>
+
+<!-- PWA 設定 -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#3b1d6e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MP3播放器">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Microsoft JhengHei", "PingFang TC", sans-serif;
+    background: linear-gradient(135deg, #1f1147 0%, #3b1d6e 50%, #1a1033 100%);
+    color: #f1eaff;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .player {
+    width: 100%;
+    max-width: 480px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 20px;
+    padding: 24px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+  }
+  h1 {
+    font-size: 18px;
+    margin: 0 0 4px;
+    font-weight: 600;
+  }
+  .sub {
+    font-size: 12px;
+    color: #c9b8f5;
+    margin: 0 0 20px;
+  }
+  .now-playing {
+    text-align: center;
+    padding: 18px 10px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 14px;
+    margin-bottom: 16px;
+  }
+  .now-playing .track {
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .now-playing .status {
+    font-size: 12px;
+    color: #c9b8f5;
+    margin-top: 4px;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    margin-bottom: 16px;
+  }
+  .controls button {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #fff;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s;
+  }
+  .controls button:hover { background: rgba(255,255,255,0.22); }
+  .controls .play-btn {
+    width: 56px;
+    height: 56px;
+    background: #8b5cf6;
+    font-size: 20px;
+  }
+  .controls .play-btn:hover { background: #9d6bfa; }
+
+  .seek-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #c9b8f5;
+    margin-bottom: 18px;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.2);
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #8b5cf6;
+    cursor: pointer;
+  }
+
+  .volume-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .volume-row span { font-size: 13px; width: 18px; text-align: center; }
+  .volume-row input[type="range"] { width: 100%; }
+
+  .mode-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .mode-row button {
+    flex: 1;
+    padding: 9px 6px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: transparent;
+    color: #c9b8f5;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .mode-row button.active {
+    background: #8b5cf6;
+    color: #fff;
+    border-color: #8b5cf6;
+  }
+
+  .playlist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 320px;
+    overflow-y: auto;
+    border-radius: 12px;
+  }
+  .playlist li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background .15s;
+  }
+  .playlist li:hover { background: rgba(255,255,255,0.08); }
+  .playlist li.playing {
+    background: rgba(139,92,246,0.25);
+    color: #fff;
+    font-weight: 600;
+  }
+  .playlist li .idx {
+    width: 20px;
+    color: #c9b8f5;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .playlist li .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+  .notice {
+    background: rgba(255,200,80,0.15);
+    border: 1px solid rgba(255,200,80,0.4);
+    color: #ffe3a1;
+    font-size: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+  .notice code {
+    background: rgba(0,0,0,0.3);
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+  .key-row {
+    margin-bottom: 16px;
+  }
+  .key-row label {
+    font-size: 12px;
+    color: #d9cdfb;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .key-row input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(0,0,0,0.25);
+    color: #fff;
+    font-size: 13px;
+    outline: none;
+  }
+  .key-row input::placeholder { color: #8d7fc0; }
+</style>
+</head>
+<body>
+
+<div class="player">
+  <h1>🎵 雲端硬碟 MP3 播放器</h1>
+  <p class="sub">播放清單來自 Google Drive 共用資料夾</p>
+
+  <div class="notice" id="notice">
+    ⚠️ 請先在下方輸入你的 Google Drive API 金鑰才能播放(跟抓取清單工具用同一組金鑰即可)。
+  </div>
+
+  <div class="key-row">
+    <label for="apiKey">Google Drive API 金鑰(跟抓取工具用同一組)</label>
+    <input type="password" id="apiKey" placeholder="貼上你的 API 金鑰">
+  </div>
+
+  <div class="now-playing">
+    <div class="track" id="trackName">尚未選取歌曲</div>
+    <div class="status" id="trackStatus">點選下方清單開始播放</div>
+  </div>
+
+  <div class="seek-row">
+    <span id="curTime">0:00</span>
+    <input type="range" id="seekBar" value="0" min="0" max="100" step="0.1">
+    <span id="durTime">0:00</span>
+  </div>
+
+  <div class="controls">
+    <button id="prevBtn" title="上一首">⏮</button>
+    <button id="playBtn" class="play-btn" title="播放/暫停">▶</button>
+    <button id="nextBtn" title="下一首">⏭</button>
+  </div>
+
+  <div class="volume-row">
+    <span>🔈</span>
+    <input type="range" id="volumeBar" min="0" max="100" value="80">
+    <span id="volLabel" style="width:32px;">80%</span>
+  </div>
+
+  <div class="mode-row">
+    <button id="modeNone">不循環</button>
+    <button id="modeAll" class="active">清單循環</button>
+    <button id="modeOne">單曲重複</button>
+  </div>
+
+  <ul class="playlist" id="playlist"></ul>
+
+  <audio id="audio"></audio>
+</div>
+
+<script>
+  // ====== 在這裡填入你的播放清單 ======
+  // id: 把 Google Drive 分享連結中 /d/ 和 /view 之間的那一段貼到這裡
+  // 例如連結 https://drive.google.com/file/d/1AbCdEfGhIjK/view?usp=sharing
+  //      → id 就是 "1AbCdEfGhIjK"
+const playlist = [
+    { name: "一袖香梦.mp3", id: "1mkHJ3g9XxbTZP4J9RmHVblgk_I-4ahLb" },
+    { name: "何日再相見.mp3", id: "1hrAIQ1C-MFbreMD6I2k7euO-DT7k6Igc" },
+    { name: "情義兩心堅.mp3", id: "1SErT1H7QS2BjkA7xjcHTVmoEQo86Iq8q" },
+    { name: "烟雨情深.mp3", id: "1RwwjQn4fb5zJTSGj6iKrdvdxYnSYRrcp" },
+    { name: "此生有你.mp3", id: "1XDOf7aOSB-90_mD7gaxd-8lrulVvwcG7" },
+    { name: "戲夢紅塵 (2).mp3", id: "11kDA53QeCuBGO2AS50D0vGq-L-tyMdLY" },
+    { name: "test_music.mp3", id: "1cOfa_adt2kHD7D-ESg_R8A314NQVYHvy" },
+    { name: "流光红尘.mp3", id: "1W7cd2cBFVlOudGgYRRVddeIcyFpH8I6q" },
+    { name: "海海人生.mp3", id: "1qEvcsF6SxsE47Cu6JaIK-tc-j7leCkgE" },
+];
+  // =====================================
+
+  function driveUrl(id) {
+    const key = apiKeyEl.value.trim();
+    return `https://www.googleapis.com/drive/v3/files/${id}?alt=media&key=${encodeURIComponent(key)}`;
+  }
+
+  const apiKeyEl = document.getElementById('apiKey');
+  const noticeEl = document.getElementById('notice');
+
+  // 記住金鑰,下次打開不用再貼一次
+  const savedKey = localStorage.getItem('drive_api_key');
+  if (savedKey) apiKeyEl.value = savedKey;
+  apiKeyEl.addEventListener('input', () => {
+    localStorage.setItem('drive_api_key', apiKeyEl.value.trim());
+    updateNotice();
+  });
+
+  function updateNotice() {
+    noticeEl.style.display = apiKeyEl.value.trim() ? 'none' : 'block';
+  }
+  updateNotice();
+
+  const audio = document.getElementById('audio');
+  const playBtn = document.getElementById('playBtn');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const seekBar = document.getElementById('seekBar');
+  const curTime = document.getElementById('curTime');
+  const durTime = document.getElementById('durTime');
+  const volumeBar = document.getElementById('volumeBar');
+  const volLabel = document.getElementById('volLabel');
+  const trackName = document.getElementById('trackName');
+  const trackStatus = document.getElementById('trackStatus');
+  const playlistEl = document.getElementById('playlist');
+  const modeNone = document.getElementById('modeNone');
+  const modeAll = document.getElementById('modeAll');
+  const modeOne = document.getElementById('modeOne');
+
+  let currentIndex = -1;
+  let mode = 'all'; // 'none' | 'all' | 'one'
+  let isPlaying = false;
+
+  function fmtTime(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function renderPlaylist() {
+    playlistEl.innerHTML = '';
+    playlist.forEach((track, i) => {
+      const li = document.createElement('li');
+      li.className = i === currentIndex ? 'playing' : '';
+      li.innerHTML = `<span class="idx">${i + 1}</span><span class="name">${track.name}</span>`;
+      li.addEventListener('click', () => loadTrack(i, true));
+      playlistEl.appendChild(li);
+    });
+  }
+
+  function loadTrack(index, autoplay) {
+    if (index < 0 || index >= playlist.length) return;
+    if (!apiKeyEl.value.trim()) {
+      trackStatus.textContent = '⚠️ 請先輸入 API 金鑰';
+      updateNotice();
+      return;
+    }
+    currentIndex = index;
+    const track = playlist[index];
+    audio.src = driveUrl(track.id);
+    trackName.textContent = track.name;
+    trackStatus.textContent = '載入中...';
+    renderPlaylist();
+    if (autoplay) {
+      audio.play().then(() => { isPlaying = true; updatePlayBtn(); })
+                   .catch(() => { trackStatus.textContent = '無法播放,請確認 API 金鑰、檔案 ID 與分享權限'; });
+    }
+  }
+
+  function updatePlayBtn() {
+    playBtn.textContent = isPlaying ? '⏸' : '▶';
+  }
+
+  playBtn.addEventListener('click', () => {
+    if (currentIndex === -1) { loadTrack(0, true); return; }
+    if (audio.paused) {
+      audio.play().then(() => { isPlaying = true; updatePlayBtn(); });
+    } else {
+      audio.pause();
+      isPlaying = false;
+      updatePlayBtn();
+    }
+  });
+
+  prevBtn.addEventListener('click', () => {
+    if (currentIndex <= 0) {
+      loadTrack(playlist.length - 1, true);
+    } else {
+      loadTrack(currentIndex - 1, true);
+    }
+  });
+
+  nextBtn.addEventListener('click', () => playNext());
+
+  function playNext() {
+    if (mode === 'one') {
+      loadTrack(currentIndex, true);
+      return;
+    }
+    if (currentIndex >= playlist.length - 1) {
+      if (mode === 'all') loadTrack(0, true);
+      else { isPlaying = false; updatePlayBtn(); }
+    } else {
+      loadTrack(currentIndex + 1, true);
+    }
+  }
+
+  audio.addEventListener('ended', playNext);
+
+  audio.addEventListener('loadedmetadata', () => {
+    seekBar.max = audio.duration;
+    durTime.textContent = fmtTime(audio.duration);
+    trackStatus.textContent = '播放中';
+  });
+
+  audio.addEventListener('timeupdate', () => {
+    seekBar.value = audio.currentTime;
+    curTime.textContent = fmtTime(audio.currentTime);
+  });
+
+  audio.addEventListener('play', () => { isPlaying = true; updatePlayBtn(); trackStatus.textContent = '播放中'; });
+  audio.addEventListener('pause', () => { isPlaying = false; updatePlayBtn(); if(trackStatus.textContent==='播放中') trackStatus.textContent='已暫停'; });
+  audio.addEventListener('error', () => { trackStatus.textContent = '❌ 載入失敗,請確認 API 金鑰、檔案 ID 與分享權限'; });
+
+  seekBar.addEventListener('input', () => {
+    audio.currentTime = seekBar.value;
+  });
+
+  volumeBar.addEventListener('input', () => {
+    const v = volumeBar.value;
+    audio.volume = v / 100;
+    volLabel.textContent = v + '%';
+  });
+  audio.volume = volumeBar.value / 100;
+
+  function setMode(newMode) {
+    mode = newMode;
+    [modeNone, modeAll, modeOne].forEach(b => b.classList.remove('active'));
+    if (newMode === 'none') modeNone.classList.add('active');
+    if (newMode === 'all') modeAll.classList.add('active');
+    if (newMode === 'one') modeOne.classList.add('active');
+    audio.loop = false; // 我們自己用 mode 控制重複,不用 audio.loop
+  }
+  modeNone.addEventListener('click', () => setMode('none'));
+  modeAll.addEventListener('click', () => setMode('all'));
+  modeOne.addEventListener('click', () => setMode('one'));
+
+  // 初始化
+  renderPlaylist();
+
+  // 註冊 Service Worker（讓這個頁面可以被「加到主畫面」、有 App 圖示與離線外殼）
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {
+        // 如果是用 file:// 打開（沒有透過網頁伺服器),註冊會失敗,但不影響播放功能
+      });
+    });
+  }
+</script>
+</body>
+</html>
